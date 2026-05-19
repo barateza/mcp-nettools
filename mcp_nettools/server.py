@@ -32,9 +32,42 @@ mcp = FastMCP("Network Tools MCP")
 
 # Helper functions for target validation
 def is_valid_hostname(hostname):
-    """Check if the provided string is a valid hostname."""
-    hostname_pattern = re.compile(r"^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$")
-    return bool(hostname_pattern.match(hostname))
+    """
+    Check if the provided string is a valid DNS name (RFC 1035 compliant).
+    
+    Accepts RFC 1035 format for DNS queries, which includes:
+    - Standard hostnames (RFC 952/1123): example.com, sub.example.com
+    - Service records (RFC 2782): _http._tcp.example.com
+    - DKIM records (RFC 6376): default._domainkey.example.com
+    - DMARC records (RFC 7489): _dmarc.example.com
+    
+    Validation rules:
+    - Allows alphanumeric, hyphens, and underscores in labels
+    - Labels cannot start or end with hyphens
+    - Labels must be 1-63 characters
+    - Requires at least 2 labels (multi-level domain)
+    - Rejects IP addresses and single labels
+    - Rejects leading dots, consecutive dots, and other malformed names
+    """
+    # RFC 1035 pattern: allows underscores for service records (SRV, DKIM, DMARC)
+    # Pattern breakdown:
+    # - (?!-) : negative lookahead, label cannot start with hyphen
+    # - [a-zA-Z0-9_-]{1,63} : label can contain alphanumeric, underscores, hyphens (1-63 chars)
+    # - (?<!-) : negative lookbehind, label cannot end with hyphen
+    # - {1,252} : at least 1 subdomain (requires multi-label domain)
+    hostname_pattern = re.compile(
+        r"^(?!-)[a-zA-Z0-9_-]{1,63}(?<!-)(?:\.(?!-)[a-zA-Z0-9_-]{1,63}(?<!-)){1,252}$"
+    )
+    
+    if not hostname_pattern.match(hostname):
+        return False
+    
+    # Reject if all labels are numeric (prevents matching IP addresses)
+    labels = hostname.split(".")
+    if all(label.isdigit() for label in labels):
+        return False
+    
+    return True
 
 def is_valid_ip(ip):
     """Check if the provided string is a valid IP address."""
