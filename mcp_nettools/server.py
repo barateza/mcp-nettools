@@ -31,43 +31,87 @@ class SSLScanOptions(BaseModel):
 mcp = FastMCP("Network Tools MCP")
 
 # Helper functions for target validation
+_DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?$")
+_HOST_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+
+
+def _normalize_domain_name(name: str) -> Optional[str]:
+    """Normalize a domain name to ASCII (IDNA A-label)."""
+    if not isinstance(name, str):
+        return None
+
+    normalized = name.strip()
+    if not normalized:
+        return None
+
+    # No trailing-dot FQDNs per current validation policy
+    if normalized.endswith("."):
+        return None
+
+    try:
+        ascii_name = normalized.encode("idna").decode("ascii")
+    except UnicodeError:
+        return None
+
+    if len(ascii_name) > 253:
+        return None
+
+    return ascii_name
+
+
+def _is_valid_domain_name(name: str, label_re: re.Pattern) -> bool:
+    ascii_name = _normalize_domain_name(name)
+    if not ascii_name:
+        return False
+
+    labels = ascii_name.split(".")
+    if len(labels) < 2:
+        return False
+
+    for label in labels:
+        if not label_re.match(label):
+            return False
+
+    if all(label.isdigit() for label in labels):
+        return False
+
+    return True
+
+
 def is_valid_hostname(hostname):
     """
     Check if the provided string is a valid DNS name (RFC 1035 compliant).
-    
+
     Accepts RFC 1035 format for DNS queries, which includes:
     - Standard hostnames (RFC 952/1123): example.com, sub.example.com
     - Service records (RFC 2782): _http._tcp.example.com
     - DKIM records (RFC 6376): default._domainkey.example.com
     - DMARC records (RFC 7489): _dmarc.example.com
-    
+
     Validation rules:
-    - Allows alphanumeric, hyphens, and underscores in labels
+    - Allows underscores for DNS record names
     - Labels cannot start or end with hyphens
     - Labels must be 1-63 characters
     - Requires at least 2 labels (multi-level domain)
     - Rejects IP addresses and single labels
-    - Rejects leading dots, consecutive dots, and other malformed names
+    - Rejects trailing dots and malformed names
     """
-    # RFC 1035 pattern: allows underscores for service records (SRV, DKIM, DMARC)
-    # Pattern breakdown:
-    # - (?!-) : negative lookahead, label cannot start with hyphen
-    # - [a-zA-Z0-9_-]{1,63} : label can contain alphanumeric, underscores, hyphens (1-63 chars)
-    # - (?<!-) : negative lookbehind, label cannot end with hyphen
-    # - {1,252} : at least 1 subdomain (requires multi-label domain)
-    hostname_pattern = re.compile(
-        r"^(?!-)[a-zA-Z0-9_-]{1,63}(?<!-)(?:\.(?!-)[a-zA-Z0-9_-]{1,63}(?<!-)){1,252}$"
-    )
-    
-    if not hostname_pattern.match(hostname):
-        return False
-    
-    # Reject if all labels are numeric (prevents matching IP addresses)
-    labels = hostname.split(".")
-    if all(label.isdigit() for label in labels):
-        return False
-    
-    return True
+    return _is_valid_domain_name(hostname, _DNS_LABEL_RE)
+
+
+def is_valid_hostname_strict(hostname):
+    """
+    Check if the provided string is a strict hostname (RFC 952/1123).
+
+    Validation rules:
+    - Disallows underscores in labels
+    - Labels cannot start or end with hyphens
+    - Labels must be 1-63 characters
+    - Requires at least 2 labels (multi-level domain)
+    - Rejects IP addresses and single labels
+    - Rejects trailing dots and malformed names
+    """
+    return _is_valid_domain_name(hostname, _HOST_LABEL_RE)
 
 def is_valid_ip(ip):
     """Check if the provided string is a valid IP address."""
@@ -79,7 +123,7 @@ def is_valid_ip(ip):
 
 def is_valid_target(target):
     """Check if the target is a valid hostname, IP address, or network."""
-    if is_valid_hostname(target) or is_valid_ip(target):
+    if is_valid_hostname_strict(target) or is_valid_ip(target):
         return True
     try:
         ipaddress.ip_network(target, strict=False)
@@ -133,7 +177,11 @@ def dns_lookup(domain: str, record_type: str = "A") -> List[Dict]:
     Returns:
         List of records found
     """
-    # Validate domain (should be a hostname, not an IP)
+    if not record_type:
+        record_type = "A"
+    record_type = record_type.upper()
+
+    # Validate domain (DNS name, not an IP)
     if not is_valid_hostname(domain):
         return [{"error": f"Invalid domain name: {domain}"}]
         
@@ -365,7 +413,7 @@ def ssl_scan(options: SSLScanOptions) -> Dict[str, Any]:
     port = options.port
     
     # Validate target
-    if not is_valid_hostname(target) and not is_valid_ip(target):
+    if not is_valid_hostname_strict(target) and not is_valid_ip(target):
         return {"error": f"Invalid target: {target}. Must be a valid hostname or IP address."}
     
     try:
@@ -664,6 +712,13 @@ def http_headers(url: str) -> Dict:
         parsed_url = urlparse(url)
         if not parsed_url.netloc:
             return {"error": f"Invalid URL: {url}"}
+
+        hostname = parsed_url.hostname
+        if not hostname:
+            return {"error": f"Invalid URL: {url}"}
+
+        if not (is_valid_hostname_strict(hostname) or is_valid_ip(hostname)):
+            return {"error": f"Invalid URL host: {hostname}"}
     except Exception:
         return {"error": f"Invalid URL format: {url}"}
     
