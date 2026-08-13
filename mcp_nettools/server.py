@@ -18,7 +18,7 @@ from sslyze.scanner.models import ServerScanRequest
 from sslyze.server_setting import ServerNetworkLocation
 from sslyze.plugins.scan_commands import ScanCommand
 from sslyze.errors import ConnectionToServerFailed
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Define Pydantic models for tool options
 class SSLScanOptions(BaseModel):
@@ -28,7 +28,7 @@ class SSLScanOptions(BaseModel):
     check_certificate: bool = Field(True, description="Analyze SSL certificate information")
 
 # Initialize the MCP server
-mcp = FastMCP("Network Tools MCP")
+mcp = MCPServer("Network Tools MCP")
 
 # Helper functions for target validation
 _DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?$")

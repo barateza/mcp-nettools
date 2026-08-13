@@ -90,14 +90,14 @@ uv run mcp-nettools
 python -m mcp_nettools.cli
 ```
 
-### Using SSE transport
+### Using Streamable HTTP transport
 
 ```bash
 # Using uv
-uv run mcp-nettools --transport sse --port 8000
+uv run mcp-nettools --transport streamable-http --port 8000
 
 # Using Python directly
-python -m mcp_nettools.cli --transport sse --port 8000
+python -m mcp_nettools.cli --transport streamable-http --port 8000
 ```
 
 You should see output similar to:
@@ -106,6 +106,14 @@ INFO:     Started server process [28048]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+```
+
+### Using SSE transport (deprecated)
+
+The legacy HTTP+SSE transport is deprecated as of the MCP `2026-07-28` specification and will be removed in a future release. It still works during the deprecation window, but new integrations should use Streamable HTTP above instead.
+
+```bash
+uv run mcp-nettools --transport sse --port 8000
 ```
 
 ## 🔧 Usage Examples
